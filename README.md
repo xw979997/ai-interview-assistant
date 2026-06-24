@@ -102,14 +102,31 @@
 - 界面顶部「🌐 联网:开/关」按钮可随时切换；也可在 `config.json` 把 `web_search` 设为 `false` 关闭。
 - 联网失败/超时会自动跳过，回退为纯本地作答，不会卡住。
 
+## 云端大模型（更快更聪明，推荐）
+本地 1.5B 模型在纯 CPU 上较慢、也没那么聪明。可以把**答案生成**交给云端大模型
+（语音识别仍在本地、不上传音频），答案又快又好（实测每题约 3 秒）。
+1. 申请一个 API Key（推荐 DeepSeek：https://platform.deepseek.com ，便宜、质量高）。
+2. 在项目根目录新建 **`secrets.json`**（此文件已被 git 忽略，不会上传），内容：
+   ```json
+   { "cloud_api_key": "sk-你的Key" }
+   ```
+3. 在 `config.json` 里设置：
+   ```json
+   "chat_provider": "cloud",
+   "cloud_base_url": "https://api.deepseek.com/v1",
+   "cloud_model": "deepseek-chat"
+   ```
+   - 通义千问：base_url 用 `https://dashscope.aliyuncs.com/compatible-mode/v1`，model 用 `qwen-plus`。
+   - OpenAI：base_url 用 `https://api.openai.com/v1`，model 用 `gpt-4o-mini`。
+4. 双击 `run.bat` 即可（云端模式无需下载/常驻本地大模型）。
+- 想换回纯本地：把 `chat_provider` 改回 `local`。
+- API Key 只存在本地 `secrets.json`，不会进入 git 仓库。
 
-## 速度 / 质量调节（纯 CPU 默认已调到快速档）
-默认用 `base` 识别 + `qwen2.5:1.5b-instruct` 生成 + 回答上限 220 字，实测：识别 ~0.8s、
-答案首字 ~0.5s、整段 ~9s。
-- **想答案更准/更有深度（稍慢）**：把 `ollama_model` 改回 `qwen-interview`（本地导入的 3B 模型，
-  质量更好但生成约慢 1.6 倍）。
+## 速度 / 质量调节（纯本地档）
+本地默认用 `base` 识别 + `qwen2.5:1.5b-instruct` 生成 + 回答上限 170 字。
+- **想答案更准/更有深度**：用上面的**云端大模型**（最推荐），或本地换 `qwen2.5:3b-instruct`。
 - **想识别更准（稍慢）**：把 `whisper_model` 改成 `small` 或 `medium`。
-- **想答案更长**：调大 `max_tokens`（注意纯 CPU 上越长越慢）。
+- **想答案更长**：调大 `max_tokens`（纯 CPU 上越长越慢；云端不受影响）。
 - **想要更高质量（联网）**：换更大的 Ollama 模型 `ollama pull qwen2.5:7b`，把 `ollama_model` 改成它。
 
 ## 想用云端 OpenAI（可选）

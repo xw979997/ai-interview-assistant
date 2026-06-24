@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 CONTEXT_PATH = os.path.join(BASE_DIR, "context.txt")
 SAMPLE_RATE = 16000
 FRAME_SECONDS = 0.1  # 每帧 100ms
@@ -50,7 +51,14 @@ DEFAULT_CONFIG = {
     "ollama_url": "http://localhost:11434",
     "ollama_model": "qwen2.5:1.5b-instruct",
 
-    # 云端（openai）相关
+    # 答案生成用哪一端：local=本地 Ollama；cloud=云端大模型(更快更聪明，需 Key)
+    # cloud 模式下语音识别仍用本地 whisper（不上传音频），只把"生成答案"交给云端。
+    "chat_provider": "local",
+    "cloud_base_url": "",   # DeepSeek: https://api.deepseek.com/v1
+    "cloud_api_key": "",    #   通义:   https://dashscope.aliyuncs.com/compatible-mode/v1
+    "cloud_model": "",      # deepseek-chat / qwen-plus / gpt-4o-mini 等
+
+    # 云端（整体走 openai backend 时）相关
     "openai_api_key": "",
     "openai_base_url": "",
     "openai_transcribe_model": "whisper-1",
@@ -94,8 +102,21 @@ def load_config():
                 cfg.update(json.load(f))
         except Exception as e:
             print(f"读取 config.json 失败，使用默认配置: {e}")
+    # 敏感信息（API Key 等）放在不被 git 跟踪的 secrets.json，覆盖 config.json
+    if os.path.exists(SECRETS_PATH):
+        try:
+            with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+                secrets = json.load(f)
+            for k, v in secrets.items():
+                if v not in (None, ""):
+                    cfg[k] = v
+        except Exception as e:
+            print(f"读取 secrets.json 失败: {e}")
+    # 环境变量兜底
     if not cfg.get("openai_api_key"):
         cfg["openai_api_key"] = os.environ.get("OPENAI_API_KEY", "")
+    if not cfg.get("cloud_api_key"):
+        cfg["cloud_api_key"] = os.environ.get("CLOUD_API_KEY", "")
     return cfg
 
 
@@ -533,10 +554,39 @@ def _ollama_set_keepalive(http_client, url, model, keep_alive):
         pass
 
 
+def _make_cloud_chat(cfg):
+    """构建云端 chat 客户端（OpenAI 兼容，用于 DeepSeek/通义/OpenAI 等）。
+    返回 (ChatLLM, 显示名)。云端请求走系统代理(trust_env=True)，
+    这样国外接口能通过代理、国内接口按代理规则直连。"""
+    import httpx
+    from openai import OpenAI
+    base = (cfg.get("cloud_base_url") or "").strip().rstrip("/")
+    key = (cfg.get("cloud_api_key") or "").strip()
+    model = (cfg.get("cloud_model") or "").strip()
+    if not base or not key or not model:
+        raise RuntimeError(
+            "云端 chat 需要在 config.json 配好 cloud_base_url / cloud_api_key / cloud_model。"
+        )
+    http_client = httpx.Client(timeout=httpx.Timeout(90.0, connect=15.0))
+    client = OpenAI(base_url=base, api_key=key, http_client=http_client)
+    llm = ChatLLM(
+        client, model, cfg.get("max_tokens"),
+        temperature=float(cfg.get("temperature", 0.3)),
+    )
+    return llm, model
+
+
 def _make_local_engine(cfg, status_cb):
     import httpx
     from openai import OpenAI
     asr = FasterWhisperASR(cfg, status_cb)
+
+    # chat_provider=cloud：语音识别仍用本地 whisper，答案生成交给云端大模型（更快更聪明）
+    if (cfg.get("chat_provider") or "local").lower() == "cloud":
+        status_cb("连接云端大模型…")
+        llm, name = _make_cloud_chat(cfg)
+        status_cb(f"云端模型已就绪：{name}")
+        return Engine(asr, llm)
 
     url = (cfg.get("ollama_url") or "http://localhost:11434").rstrip("/")
     model = cfg.get("ollama_model") or "qwen-interview"

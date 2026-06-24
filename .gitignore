@@ -13,6 +13,9 @@ _*.py
 _*.ps1
 *.log
 
+# 密钥（API Key 等敏感信息，绝不提交）
+secrets.json
+
 # 系统/IDE
 .vscode/
 .idea/
