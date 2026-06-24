@@ -1107,16 +1107,26 @@ class App:
         )
         self.a_text.pack(fill="both", expand=True, padx=8, pady=(2, 6))
 
+        tk.Label(r, text="手动提问（中文输入法下按回车可能被吞，建议点右边按钮）",
+                 bg="#1e1e1e", fg="#808080", font=small, anchor="w",
+                 padx=8).pack(fill="x")
         bottom = tk.Frame(r, bg="#1e1e1e")
         bottom.pack(fill="x", padx=8, pady=(0, 8))
         self.entry = tk.Entry(bottom, bg="#3c3c3c", fg="#ffffff",
                               font=ui_font, relief="flat", insertbackground="#fff")
-        self.entry.pack(side="left", fill="x", expand=True, ipady=4)
-        self.entry.bind("<Return>", lambda e: self.manual_ask())
+        self.entry.pack(side="left", fill="x", expand=True, ipady=5)
+
+        def _on_enter(_e=None):
+            self.manual_ask()
+            return "break"   # 阻止默认行为，确保回车一定触发提问
+        # 主回车、小键盘回车都绑定（英文/二次回车可用；中文输入法首个回车常被吞）
+        self.entry.bind("<Return>", _on_enter)
+        self.entry.bind("<KP_Enter>", _on_enter)
         tk.Button(
-            bottom, text="手动提问 ▶", command=self.manual_ask,
-            bg="#0e639c", fg="#ffffff", relief="flat", font=small, padx=10
-        ).pack(side="right", padx=(6, 0))
+            bottom, text="▶ 提问", command=self.manual_ask,
+            bg="#0e639c", fg="#ffffff", relief="flat",
+            font=q_font, padx=16, pady=2
+        ).pack(side="right", padx=(8, 0))
 
         r.protocol("WM_DELETE_WINDOW", self.on_close)
         r.bind("<Control-space>", lambda e: self.toggle_listen())
