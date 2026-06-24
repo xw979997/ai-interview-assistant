@@ -1,0 +1,20 @@
+# 模型文件（大，约 2.4GB，用 setup.bat / download_models.py 自动下载）
+models/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 临时文件
+*.wav
+_*.py
+_*.ps1
+*.log
+
+# 系统/IDE
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
