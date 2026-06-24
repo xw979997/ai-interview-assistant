@@ -11,21 +11,30 @@
 - 本地 `Ollama` 跑 Qwen2.5-3B 中文模型，流式生成第一人称的中文回答，结合你在 `context.txt` 里写的简历/岗位资料。
 
 ## 组件
-- 语音识别：`faster-whisper`（Python 库，CPU int8）。
-- 大模型：`Ollama` + `Qwen2.5-3B-Instruct`（GGUF q4_k_m）。Ollama 自带 CPU 运行时分发，
+- 语音识别：`faster-whisper`（Python 库，CPU int8，默认 base）。
+- 大模型：`Ollama` + `Qwen2.5-1.5B-Instruct`（默认，速度快）。Ollama 自带 CPU 运行时分发，
   无需 AVX-512，普通 CPU 即可运行；通过其 OpenAI 兼容接口（http://localhost:11434/v1）调用。
+  想要答案更有深度，可换 `qwen2.5:3b-instruct`（见下文）。
 
-## 配置要求
-- Windows，Python 3.12（已安装在 `C:\Users\admin\AppData\Local\Programs\Python\Python312`）。
-- 建议 8GB 以上内存、较新的 CPU（i7-10700 + 32GB 完全够用，纯 CPU 运行）。
-- 首次需下载约 2.4GB 模型 + Ollama 安装包，之后完全离线。
+## 环境要求（在干净电脑上部署）
+- **Windows 10/11**。
+- **Python 3.10+（建议 3.12）**：先自行安装，安装时勾选 “Add Python to PATH”。
+  没装的话：到 https://www.python.org/downloads/ 下载，或命令行 `winget install Python.Python.3.12`。
+- **联网**：仅首次安装需要联网（下载依赖、Ollama、模型，约 1.2GB）；装好后日常使用可完全离线
+  （联网检索功能除外）。
+- 建议 8GB 以上内存、较新的 CPU（纯 CPU 运行，无需显卡）。
+- Ollama 会由 `setup.bat` 自动安装，无需手动装。
 
-## 快速开始
-1. 双击 `setup.bat`：自动装 Python 依赖、装 Ollama、下载模型、把模型导入 Ollama。
-2. 打开 `context.txt`，把简历要点和目标岗位信息替换成你自己的真实内容（答案更贴合你）。
-3. 双击 `run.bat` 启动。窗口会一直置顶悬浮，自动聆听并作答。
+## 在干净电脑上一键部署
+1. `git clone` 本仓库（注意：仓库不含模型文件，会在下一步自动下载）。
+2. 确认已装好 Python（见上面「环境要求」）。
+3. **双击 `setup.bat`**：自动完成全部环境部署——
+   装 Python 依赖、装并启动 Ollama、拉取语言模型、下载语音识别模型。首次约几分钟（取决于网速）。
+4. 打开 `context.txt`，把里面的示例换成你自己的真实简历内容。
+5. **双击 `run.bat`** 启动。等状态显示「聆听中…（模型已就绪）」即可。
 
-> 注意：要保证 Ollama 在后台运行（安装后一般会自动常驻；如未运行，命令行执行 `ollama serve`）。
+> 所有 `.bat` 都会自动探测 Python（py 启动器 / python / 常见安装路径），无需改任何路径。
+> Ollama 服务由 `run.bat` 自动确保在后台运行。
 
 ## 自测：用语音考官测试软件
 想在没有真人面试时测试效果，可以用内置的"语音考官"：它用系统声音朗读面试问题，
