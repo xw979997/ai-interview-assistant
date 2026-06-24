@@ -56,7 +56,8 @@ DEFAULT_CONFIG = {
     "chat_provider": "local",
     "cloud_base_url": "",   # DeepSeek: https://api.deepseek.com/v1
     "cloud_api_key": "",    #   通义:   https://dashscope.aliyuncs.com/compatible-mode/v1
-    "cloud_model": "",      # deepseek-chat / qwen-plus / gpt-4o-mini 等
+    "cloud_model": "",      # deepseek-v4-pro / qwen-plus / gpt-4o-mini 等
+    "cloud_classify_model": "",  # 分类用的快模型(留空=同 cloud_model)；v4-pro 建议填 deepseek-chat
 
     # 云端（整体走 openai backend 时）相关
     "openai_api_key": "",
@@ -192,13 +193,24 @@ def build_system_prompt(target_role=""):
 
 # 这些措辞说明面试官在问候选人本人的经历/背景，此时才把简历喂给模型
 PERSONAL_TRIGGERS = (
-    "自我介绍", "介绍一下自己", "介绍下自己", "介绍一下你", "介绍下你", "你自己",
-    "你的优势", "你的优点", "你的缺点", "你的不足", "最大的优点", "最大的缺点",
+    # 自我介绍 / 身份
+    "自我介绍", "介绍一下自己", "介绍下自己", "介绍一下你", "介绍下你", "介绍你自己",
+    "你自己", "你叫什么", "你的名字", "你是谁", "谈谈你", "说说你", "讲讲你",
+    "评价一下自己", "你的故事",
+    # 教育背景
+    "哪个学校", "哪所学校", "哪个大学", "什么专业", "什么学校", "你的学历", "你的专业",
+    "你毕业", "你是哪", "读的什么", "学的什么", "你的院校", "你的母校",
+    # 工作 / 项目经历
     "你的项目", "项目经历", "项目经验", "你做过", "你负责", "你参与", "你主导",
-    "你的经验", "你的经历", "你的背景", "你擅长", "你的技能", "你掌握", "你会哪些",
-    "为什么选择", "为什么想", "为什么离职", "离职原因", "职业规划", "职业发展",
-    "期望薪资", "谈谈你", "说说你", "讲讲你", "你过去", "你之前", "你目前",
-    "你现在", "评价一下自己", "你为什么来", "你的故事", "你有什么经验",
+    "你的工作", "你的经验", "你的经历", "你的背景", "你之前", "你过去", "你目前",
+    "你现在", "几年经验", "工作几年", "你在哪", "你就职", "你任职", "你的岗位",
+    # 技能 / 优劣势
+    "你擅长", "你的技能", "你掌握", "你会哪些", "你会什么", "你的优势", "你的劣势",
+    "你的优点", "你的缺点", "你的不足", "最大的优点", "最大的缺点", "最大的优势",
+    # 求职动机 / 规划 / 薪资
+    "为什么选择", "为什么想", "为什么离职", "离职原因", "为什么跳槽", "职业规划",
+    "职业发展", "期望薪资", "薪资期望", "工资期望", "你为什么来", "为什么应聘",
+    "你的期望", "你有什么想问", "你有什么经验",
 )
 
 
@@ -404,12 +416,15 @@ class ChatLLM:
     """OpenAI 兼容的对话生成：既可指向 OpenAI 云端，也可指向本地 Ollama。"""
 
     def __init__(self, client, model, max_tokens=None, keep_alive=None,
-                 temperature=0.3):
+                 temperature=0.3, classify_model=None):
         self.client = client
         self.model = model
         self.max_tokens = max_tokens
         self.keep_alive = keep_alive  # 仅本地 Ollama：-1 表示常驻不卸载
         self.temperature = temperature
+        # 分类用的模型（可与作答模型不同）：作答用聪明但慢的模型时，
+        # 分类用一个快且稳定输出的模型，避免推理型模型分类返回空又慢。
+        self.classify_model = classify_model or model
 
     def answer_stream(self, system_prompt, question, stop_event):
         kwargs = dict(
@@ -478,7 +493,7 @@ class ChatLLM:
         )
         try:
             kwargs = dict(
-                model=self.model,
+                model=self.classify_model,
                 messages=[
                     {"role": "system", "content": sys_p},
                     {"role": "user", "content": "问题：" + (question or "")},
@@ -569,9 +584,13 @@ def _make_cloud_chat(cfg):
         )
     http_client = httpx.Client(timeout=httpx.Timeout(90.0, connect=15.0))
     client = OpenAI(base_url=base, api_key=key, http_client=http_client)
+    # 分类用快模型：默认用作答模型；若配了 cloud_classify_model 就用它
+    # （作答用 deepseek-v4-pro 这种推理模型时，分类配 deepseek-chat 更快更稳）
+    classify_model = (cfg.get("cloud_classify_model") or "").strip() or model
     llm = ChatLLM(
         client, model, cfg.get("max_tokens"),
         temperature=float(cfg.get("temperature", 0.3)),
+        classify_model=classify_model,
     )
     return llm, model
 
@@ -911,15 +930,17 @@ class Brain(threading.Thread):
         # 语音回答：若此时已有手动提问在等，立刻让位，先去回答手动提问
         if not is_manual and self._manual_pending():
             return
-        # 判断是不是“问你个人经历/背景”的题：先用模型快速分类(更准)，
-        # 失败则回退到关键词；只有个人题才把简历喂进去，避免专业题被简历带偏。
-        cls = None
+        # 判断是不是“问你个人经历/背景”的题，只有个人题才喂简历，避免专业题被带偏：
+        #  1) 先用全面的关键词判断（命中即个人题，准确率高）；
+        #  2) 没命中时再用模型分类作为补充（仅能把它升级为个人题）；
+        #     注意有些推理模型分类会返回空，此时保持“专业题”默认，既安全又防偏。
+        personal = False
         if self.context:
-            cls = self.engine.classify_personal(question)
-        if cls is None:
             personal = is_personal_question(question)
-        else:
-            personal = bool(cls)
+            if not personal:
+                cls = self.engine.classify_personal(question)
+                if cls is True:
+                    personal = True
         user_q = build_user_message(question, self.context, snippets, personal)
         if snippets:
             self.ui_queue.put(("status", "AI 正在作答（已结合联网资料）…"))
